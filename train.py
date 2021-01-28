@@ -1,109 +1,102 @@
-#!/usr/bin/env python
-# coding: utf-8
+from datasets import load_dataset
+import hydra
+import os
+from datetime import date
+import logging
+from omegaconf import DictConfig
+from hydra import slurm_utils
 
-# In[26]:
+@hydra.main(config_path='/h/nng/conf/biossmba/config.yaml', strict=False)
+def train(cfg: DictConfig):
+    log = logging.getLogger(__name__)
 
+    base_dir = '/h/nng/data/readmit/mimic/orig'
 
-from pathlib import Path
+    input_dataset = load_dataset('text', data_files={'train': base_dir + '/train', 'valid': base_dir + '/valid', 'test': base_dir + '/test'})
+    label_dataset = load_dataset('text', data_files={'train': base_dir + '/train_label', 'valid': base_dir + '/valid_label', 'test': base_dir + '/test_label'})
 
-def read_data_split(file):
-    texts = []
-    with open(file,'r') as f:
-        for line in f:
-            texts.append(line.strip())
-    return texts
+    print(input_dataset)
+    print(label_dataset)
 
-def read_label_split(file):
-    labels = []
-    with open(file,'r') as f:
-        for line in f:
-            if line == '1\n':
-                labels.append(1)
-            else:
-                labels.append(0)
-    return labels
+    from transformers import DistilBertTokenizerFast
+    tokenizer = DistilBertTokenizerFast.from_pretrained('emilyalsentzer/Bio_ClinicalBERT')
+    #tokenizer = DistilBertTokenizerFast.from_pretrained('distilbert-base-uncased')
 
-train_texts = read_data_split('../data/splits/train2')
-train_labels = read_label_split('../data/splits/train_label2')
-val_texts = read_data_split('../data/splits/valid2')
-val_labels = read_label_split('../data/splits/valid_label2')
-test_texts = read_data_split('../data/splits/test2')
-test_labels = read_label_split('../data/splits/test_label2')
+    def encode(examples):
+         return tokenizer(examples['text'], truncation=True, padding='max_length', max_length=512)
 
+    input_dataset = input_dataset.map(encode, batched=True)
 
-# In[27]:
+    # training model on tokenized and split data
+    import torch
 
+    class Dataset(torch.utils.data.Dataset):
+        def __init__(self, inputs, labels):
+            self.inputs = inputs
+            self.labels = labels
 
-from transformers import DistilBertTokenizerFast
-#tokenizer = DistilBertTokenizerFast.from_pretrained('emilyalsentzer/Bio_ClinicalBERT')
-tokenizer = DistilBertTokenizerFast.from_pretrained('distilbert-base-uncased')
+        def __getitem__(self, idx):
+            item = {key: torch.tensor(val) for key, val in self.inputs[idx].items() if key != 'text'}
+            item['labels'] = torch.tensor(int(self.labels[idx]['text']))
+            return item
 
+        def __len__(self):
+            return len(self.labels)
 
-# In[28]:
+    train_dataset = Dataset(input_dataset['train'], label_dataset['train'])
+    val_dataset = Dataset(input_dataset['valid'], label_dataset['valid'])
+    test_dataset = Dataset(input_dataset['test'], label_dataset['test'])
 
+    from transformers import DistilBertForSequenceClassification, Trainer, TrainingArguments
+    model = DistilBertForSequenceClassification.from_pretrained("distilbert-base-uncased")
 
-train_encodings = tokenizer(train_texts, truncation=True, padding=True)
-val_encodings = tokenizer(val_texts, truncation=True, padding=True)
-test_encodings = tokenizer(test_texts, truncation=True, padding=True)
+    from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score
 
+    def compute_metrics(pred):
+        labels = pred.label_ids
+        preds = pred.predictions.argmax(-1)
+        precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average='binary')
+        acc = accuracy_score(labels, preds)
+        roc = roc_auc_score(labels, pred.predictions[:,-1])
+        return {
+            'accuracy': acc,
+            'f1': f1,
+            'precision': precision,
+            'recall': recall,
+            'auroc': roc,
+        }
 
-# In[29]:
+    j_dir = slurm_utils.get_j_dir(cfg)
+    o_dir = os.path.join(j_dir, os.environ['SLURM_JOB_ID'])
+    log_dir = os.path.join(o_dir, 'logs', os.environ['SLURM_JOB_ID'])
+    os.makedirs(log_dir, exist_ok=True)
 
+    training_args = TrainingArguments(
+        output_dir=o_dir,          # output directory
+        num_train_epochs=3,              # total number of training epochs
+        per_device_train_batch_size=16,  # batch size per device during training
+        per_device_eval_batch_size=16,   # batch size for evaluation
+        warmup_steps=10000,                # number of warmup steps for learning rate scheduler
+        weight_decay=0.1,               # strength of weight decay
+        logging_dir=log_dir,
+        logging_steps=100,
+        evaluation_strategy='steps',
+        learning_rate=4e-5,
+        fp16=True,
+        save_total_limit=5,
+        eval_steps=2000,
+        save_steps=2000,
+    )
 
-len(test_encodings['input_ids'])
+    trainer = Trainer(
+        model=model,                         # the instantiated 🤗 Transformers model to be trained
+        args=training_args,                  # training arguments, defined above
+        train_dataset=train_dataset,         # training dataset
+        eval_dataset=val_dataset,             # evaluation dataset
+        compute_metrics=compute_metrics,
+    )
 
+    trainer.train()
 
-# In[30]:
-
-
-# training model on tokenized and split data
-import torch
-
-class Dataset(torch.utils.data.Dataset):
-    def __init__(self, encodings, labels):
-        self.encodings = encodings
-        self.labels = labels
-
-    def __getitem__(self, idx):
-        item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
-        item['labels'] = torch.tensor(self.labels[idx])
-        return item
-
-    def __len__(self):
-        return len(self.labels)
-
-train_dataset = Dataset(train_encodings, train_labels)
-val_dataset = Dataset(val_encodings, val_labels)
-test_dataset = Dataset(test_encodings, test_labels)
-
-
-# In[ ]:
-
-
-from transformers import DistilBertForSequenceClassification, Trainer, TrainingArguments
-
-training_args = TrainingArguments(
-    output_dir='../data/results',          # output directory
-    num_train_epochs=3,              # total number of training epochs
-    per_device_train_batch_size=16,  # batch size per device during training
-    per_device_eval_batch_size=64,   # batch size for evaluation
-    warmup_steps=500,                # number of warmup steps for learning rate scheduler
-    weight_decay=0.01,               # strength of weight decay
-    logging_dir='./logs',            # directory for storing logs
-    logging_steps=10,
-)
-
-model = DistilBertForSequenceClassification.from_pretrained("distilbert-base-uncased")
-
-trainer = Trainer(
-    model=model,                         # the instantiated 🤗 Transformers model to be trained
-    args=training_args,                  # training arguments, defined above
-    train_dataset=train_dataset,         # training dataset
-    eval_dataset=val_dataset             # evaluation dataset
-)
-
-trainer.train()
-
-
-
-
+if __name__ == "__main__":
+    train()
