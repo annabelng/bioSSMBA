@@ -1,16 +1,30 @@
 from datasets import load_dataset
+import argparse
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score
+import torch
+from transformers import DistilBertForSequenceClassification, Trainer, TrainingArguments
 import hydra
+import torch.nn.functional as F
+from transformers import DistilBertTokenizerFast
 import os
 from datetime import date
 import logging
 from omegaconf import DictConfig
 from hydra import slurm_utils
 
+class KLTrainer(Trainer):
+    def compute_loss(self, model, inputs):
+        labels = inputs.pop("labels")
+        outputs = model(**inputs)
+        logits = F.log_softmax(outputs[0], dim=-1, dtype=torch.float32)
+        return F.kl_div(logits, labels)
+
+
 @hydra.main(config_path='/h/nng/conf/biossmba/config.yaml', strict=False)
 def train(cfg: DictConfig):
     log = logging.getLogger(__name__)
 
-    base_dir = '/h/nng/data/readmit/mimic/orig'
+    base_dir = '/h/nng/data/readmit/mimic/ssmba_0.1'
 
     input_dataset = load_dataset('text', data_files={'train': base_dir + '/train', 'valid': base_dir + '/valid', 'test': base_dir + '/test'})
     label_dataset = load_dataset('text', data_files={'train': base_dir + '/train_label', 'valid': base_dir + '/valid_label', 'test': base_dir + '/test_label'})
@@ -18,17 +32,22 @@ def train(cfg: DictConfig):
     print(input_dataset)
     print(label_dataset)
 
-    from transformers import DistilBertTokenizerFast
     tokenizer = DistilBertTokenizerFast.from_pretrained('emilyalsentzer/Bio_ClinicalBERT')
     #tokenizer = DistilBertTokenizerFast.from_pretrained('distilbert-base-uncased')
 
-    def encode(examples):
+    def encode_inputs(examples):
          return tokenizer(examples['text'], truncation=True, padding='max_length', max_length=512)
 
-    input_dataset = input_dataset.map(encode, batched=True)
+    def encode_labels(example):
+        probs = example['text'].strip().split()
+        example['0'] = float(probs[0])
+        example['1'] = float(probs[1])
+        return example
+
+    label_dataset = label_dataset.map(encode_labels)
+    input_dataset = input_dataset.map(encode_inputs, batched=True)
 
     # training model on tokenized and split data
-    import torch
 
     class Dataset(torch.utils.data.Dataset):
         def __init__(self, inputs, labels):
@@ -37,7 +56,9 @@ def train(cfg: DictConfig):
 
         def __getitem__(self, idx):
             item = {key: torch.tensor(val) for key, val in self.inputs[idx].items() if key != 'text'}
-            item['labels'] = torch.tensor(int(self.labels[idx]['text']))
+            item['labels'] = torch.tensor([self.labels[idx]['0'], self.labels[idx]['1']])
+            #item['labels'] = torch.tensor(int(self.labels[idx]['text']))
+
             return item
 
         def __len__(self):
@@ -47,13 +68,12 @@ def train(cfg: DictConfig):
     val_dataset = Dataset(input_dataset['valid'], label_dataset['valid'])
     test_dataset = Dataset(input_dataset['test'], label_dataset['test'])
 
-    from transformers import DistilBertForSequenceClassification, Trainer, TrainingArguments
     model = DistilBertForSequenceClassification.from_pretrained("distilbert-base-uncased")
-
-    from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score
+    model = model.cuda()
 
     def compute_metrics(pred):
-        labels = pred.label_ids
+        labels = pred.label_ids.argmax(-1)
+        #labels = pred.label_ids
         preds = pred.predictions.argmax(-1)
         precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average='binary')
         acc = accuracy_score(labels, preds)
@@ -76,7 +96,7 @@ def train(cfg: DictConfig):
         num_train_epochs=3,              # total number of training epochs
         per_device_train_batch_size=16,  # batch size per device during training
         per_device_eval_batch_size=16,   # batch size for evaluation
-        warmup_steps=2500,                # number of warmup steps for learning rate scheduler
+        warmup_steps=12500,                # number of warmup steps for learning rate scheduler
         weight_decay=0.1,               # strength of weight decay
         logging_dir=log_dir,
         logging_steps=100,
@@ -87,6 +107,8 @@ def train(cfg: DictConfig):
         eval_steps=2000,
         save_steps=2000,
     )
+
+    training_args._n_gpu = 4
 
     trainer = Trainer(
         model=model,                         # the instantiated 🤗 Transformers model to be trained
