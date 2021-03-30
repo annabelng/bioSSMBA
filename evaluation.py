@@ -1,3 +1,9 @@
+#!/usr/bin/env python
+# coding: utf-8
+
+# In[2]:
+
+
 # n number of subsequences of a patient's notes
 # c is scaling factor and controls influence of number of subsequences
 # use c= 2
@@ -8,17 +14,54 @@ import os
 import numpy as np
 import torch
 from scipy.special import softmax
-from transformers import DistilBertTokenizerFast
-import hydra
 from omegaconf import DictConfig
+import hydra
 from hydra import slurm_utils
+from transformers import DistilBertTokenizerFast
+from transformers import DistilBertForSequenceClassification, Trainer, TrainingArguments
 
+
+# In[1]:
+@hydra.main(config_path='/h/nng/conf/biossmba', config_name='config')
 def eval_model(cfg: DictConfig):
-    #tokenizer = DistilBertTokenizerFast.from_pretrained('emilyalsentzer/Bio_ClinicalBERT')
-    tokenizer = DistilBertTokenizerFast.from_pretrained('distilbert-base-uncased')
+
+    tokenizer = DistilBertTokenizerFast.from_pretrained('emilyalsentzer/Bio_ClinicalBERT')
+    #tokenizer = DistilBertTokenizerFast.from_pretrained('distilbert-base-uncased')
+
+
+    # In[3]:
+
 
     def encode(examples):
          return tokenizer(examples['text'], truncation=True, padding='max_length', max_length=512)
+
+
+    # In[4]:
+
+
+    if cfg.extra == 'base':
+        model = DistilBertForSequenceClassification.from_pretrained("/checkpoint/nng/keep/train_lr2e-05/checkpoint-6000")
+    elif cfg.noise == 0.1 and cfg.label == 'soft':
+        model = DistilBertForSequenceClassification.from_pretrained("/h/nng/slurm/2021-03-04/train_ssmba_0.1_soft/2077547/checkpoint-31000")
+    elif cfg.noise == 0.1 and cfg.label == 'pres':
+        model = DistilBertForSequenceClassification.from_pretrained("/h/nng/slurm/2021-03-04/train_ssmba_0.1_pres/2077548/checkpoint-31000")
+    elif cfg.noise == 0.2 and cfg.label == 'soft':
+        model = DistilBertForSequenceClassification.from_pretrained("/h/nng/slurm/2021-03-04/train_ssmba_0.2_soft/2077549/checkpoint-31000")
+    elif cfg.noise == 0.2 and cfg.label == 'pres':
+        model = DistilBertForSequenceClassification.from_pretrained("/h/nng/slurm/2021-03-04/train_ssmba_0.2_pres/2077550/checkpoint-31000")
+    elif cfg.noise == 0.3 and cfg.label == 'soft':
+        model = DistilBertForSequenceClassification.from_pretrained("/h/nng/slurm/2021-03-04/train_ssmba_0.3_soft/2077551/checkpoint-31000")
+    elif cfg.noise == 0.3 and cfg.label == 'pres':
+        model = DistilBertForSequenceClassification.from_pretrained("/h/nng/slurm/2021-03-04/train_ssmba_0.3_pres/2077552/checkpoint-31000")
+    elif cfg.noise == 0.4 and cfg.label == 'soft':
+        model = DistilBertForSequenceClassification.from_pretrained("/h/nng/slurm/2021-03-04/train_ssmba_0.4_soft/2077553/checkpoint-31000")
+    elif cfg.noise == 0.4 and cfg.label == 'pres':
+        model = DistilBertForSequenceClassification.from_pretrained("/h/nng/slurm/2021-03-04/train_ssmba_0.4_pres/2077554/checkpoint-31000")
+
+
+    # In[5]:
+    model.eval()
+    model.cuda()
 
     # training model on tokenized and split data
     class Dataset(torch.utils.data.Dataset):
@@ -34,22 +77,31 @@ def eval_model(cfg: DictConfig):
         def __len__(self):
             return len(self.labels)
 
+
+    # In[6]:
+
+
     def probability(test_dataset):
         # generates prediction from model
-        pred = trainer.predict(test_dataset).predictions
+        train_pred = trainer.predict(test_dataset)
+        pred = train_pred.predictions
+
         # softmax each row so each row sums to 1
         prob = softmax(pred, axis = 1)
+
         # find the mean probability of readmission
         meanprob = np.mean(prob,axis=0)[1]
+
         # find the max probability of readmission
         maxprob = np.amax(prob,axis=0)[1]
 
         n = pred.shape[0]
 
+        # return mean, max, shape
         return meanprob, maxprob, n
 
 
-    # In[28]:
+    # In[7]:
 
 
     def prepare_data(patientID):
@@ -66,9 +118,10 @@ def eval_model(cfg: DictConfig):
         return test_dataset
 
 
-    # In[31]:
+    # In[8]:
 
 
+    # calculating readmit probability on per patient basis
     def readmit_probability(maxprob,meanprob,n):
         # c accounts for patients with many notes
         c=2
@@ -81,42 +134,143 @@ def eval_model(cfg: DictConfig):
         return probability
 
 
-    # In[7]:
-
-
-    from transformers import DistilBertForSequenceClassification, Trainer, TrainingArguments
-    model = DistilBertForSequenceClassification.from_pretrained("/h/nng/slurm/2021-01-27/train/checkpoint-12000/")
-
-
-    # In[32]:
+    # In[9]:
 
 
     from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score
 
+    # generating numpy array of all the real labels
+    def patient_labels(patients):
+        labels = []
+        for i in range(len(patients)):
+            # taking label per patient
+            with open('/h/nng/data/readmit/labels/'+ patients[i], 'r') as f:
+                text = f.readline().strip()
+                if text == '1':
+                    labels.append(1)
+                elif text == '0':
+                    labels.append(0)
+
+        label_array = np.asarray(labels)
+
+        return label_array
+
+    # take in probabilities per patient array and threshold
+    # turn into list of labels of 0 or 1
+    def convert_probability(pred, threshold):
+        labels= []
+        for val in pred:
+            if val>threshold:
+                labels.append(1)
+            else:
+                labels.append(0)
+
+        labels_array = np.asarray(labels)
+        return labels_array
+
+    # computing accuracy, f1, precision, recall, auroc
+    # parameters are the arrays of predicted labels, real labels, and predicted probabilities
+    def compute_metrics(pred_label, real_label, readmit_prob):
+        labels = real_label
+        preds = pred_label
+        predictions = readmit_prob
+        precision, recall, f1, _ = precision_recall_fscore_support(labels, preds, average='binary')
+        acc = accuracy_score(labels, preds)
+        roc = roc_auc_score(labels, predictions)
+        return {
+            'accuracy': acc,
+            'f1': f1,
+            'precision': precision,
+            'recall': recall,
+            'auroc': roc,
+        }
+
+
+    # In[10]:
+
+
     trainer = Trainer(
-        model=model                        # the instantiated 🤗 Transformers model to be trained
+        # the instantiated 🤗 Transformers model to be trained
+        model=model,
     )
 
 
-    # In[ ]:
+    # In[11]:
 
 
-    # empty list of scalable readmission prediction probabilities
-    patient_prob = []
+    with open('/h/nng/data/readmit/mimic/orig/valid_admissions','r') as f:
+        lines = f.read().splitlines()
+        set_valid = set(lines)
+    valid_list = list(set_valid)
 
-    # generate list of all patients
-    patients = os.listdir('/h/nng/data/readmit/processPatient/')
-
-    for i in range(len(patients)):
-        # load the patient datset
-        test_dataset = prepare_data(patients[i])
-        # find the max and mean probability of readmission
-        mean, maximum, n = probability(test_dataset)
-        readmit = readmit_probability(mean,maximum,n)
-        patient_prob.append(readmit)
-
-    print(readmit)
-    print(len(patient_prob))
+    with open('/h/nng/data/readmit/mimic/orig/test_admissions','r') as f:
+        lines = f.read().splitlines()
+        set_test = set(lines)
+    test_list = list(set_test)
 
 
+    # In[22]:
 
+
+    # takes in list of patients from either valid split or test split
+    # lists are valid_list or test_list
+    def evaluate(split):
+        # empty list of scalable readmission prediction probabilities
+        patient_prob = []
+
+        # load valid list for testing
+        for i in range(len(split)):
+            # load the patient datset
+            test_dataset = prepare_data(split[i])
+
+            # find the max and mean probability of readmission
+            mean, maximum, n = probability(test_dataset)
+
+            # calculate readmission probability per patient
+            readmit = readmit_probability(mean,maximum,n)
+
+            # add probabilities into list of all patient probabilities
+            patient_prob.append(readmit)
+            #print(i)
+
+        return patient_prob
+
+
+    # In[20]:
+
+
+    # generating patient probability from model
+    # pass in either valid_list or test_list
+    patient_prob = evaluate(test_list)
+
+    # generating actual labels of patients for valid list
+    # pass in either valid_list or test_list
+    real_labels = patient_labels(test_list)
+
+    # turn predicted probability list into 1d numpy array
+    pred_prob = np.asarray(patient_prob)
+
+    # generate label array from probability list and threshold
+    # if probability over a certain threshold, generate a readmit label of 1
+    # otherwise, readmit = 0
+    pred_labels = convert_probability(pred_prob,0.5)
+
+    #print(real_labels)
+    #print(pred_prob)
+    #print(pred_labels)
+
+
+    j_dir = slurm_utils.get_j_dir(cfg)
+    o_dir = os.path.join(j_dir, os.environ['SLURM_JOB_ID'])
+    with open(os.path.join(o_dir, 'pred_prob.npz'), 'wb') as f:
+        np.save(f, pred_prob)
+    with open(os.path.join(o_dir, 'pred_labels.npz'), 'wb') as f:
+        np.save(f, pred_labels)
+    with open(os.path.join(o_dir, 'real_labels.npz'), 'wb') as f:
+        np.save(f, real_labels)
+
+    # computing the metrics
+    print(compute_metrics(pred_labels, real_labels,pred_prob))
+
+if __name__ == "__main__":
+    eval_model()

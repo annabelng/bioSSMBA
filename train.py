@@ -5,6 +5,20 @@ from datetime import date
 import logging
 from omegaconf import DictConfig
 from hydra import slurm_utils
+from transformers import DistilBertForSequenceClassification, Trainer, TrainingArguments
+import torch.nn as nn
+import torch
+
+class WeightedTrainer(Trainer):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.loss_fn = nn.CrossEntropyLoss(weight=torch.tensor([1, 15], dtype=torch.float32).cuda())
+
+    def compute_loss(self, model, inputs):
+        labels = inputs.pop("labels")
+        outputs = model(**inputs)
+        return self.loss_fn(outputs[0], labels)
 
 @hydra.main(config_path='/h/nng/conf/biossmba/config.yaml', strict=False)
 def train(cfg: DictConfig):
@@ -76,19 +90,20 @@ def train(cfg: DictConfig):
         num_train_epochs=3,              # total number of training epochs
         per_device_train_batch_size=16,  # batch size per device during training
         per_device_eval_batch_size=16,   # batch size for evaluation
-        warmup_steps=2500,                # number of warmup steps for learning rate scheduler
+        warmup_steps=1200,                # number of warmup steps for learning rate scheduler
         weight_decay=0.1,               # strength of weight decay
         logging_dir=log_dir,
         logging_steps=100,
         evaluation_strategy='steps',
-        learning_rate=4e-5,
+        learning_rate=2e-5,
         fp16=True,
         save_total_limit=5,
         eval_steps=2000,
         save_steps=2000,
+        seed=0,
     )
 
-    trainer = Trainer(
+    trainer = WeightedTrainer(
         model=model,                         # the instantiated 🤗 Transformers model to be trained
         args=training_args,                  # training arguments, defined above
         train_dataset=train_dataset,         # training dataset
