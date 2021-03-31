@@ -98,7 +98,7 @@ def eval_model(cfg: DictConfig):
         n = pred.shape[0]
 
         # return mean, max, shape
-        return meanprob, maxprob, n
+        return prob
 
 
     # In[7]:
@@ -224,13 +224,13 @@ def eval_model(cfg: DictConfig):
             test_dataset = prepare_data(split[i])
 
             # find the max and mean probability of readmission
-            mean, maximum, n = probability(test_dataset)
+            raw_prob = probability(test_dataset)
 
             # calculate readmission probability per patient
-            readmit = readmit_probability(mean,maximum,n)
+            #readmit = readmit_probability(mean,maximum,n)
 
             # add probabilities into list of all patient probabilities
-            patient_prob.append(readmit)
+            patient_prob.append(raw_prob)
             #print(i)
 
         return patient_prob
