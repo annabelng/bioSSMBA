@@ -88,6 +88,7 @@ def eval_model(cfg: DictConfig):
 
         # softmax each row so each row sums to 1
         prob = softmax(pred, axis = 1)[:,1]
+        prob_list = prob.tolist()
 
         # find the mean probability of readmission
         #meanprob = np.mean(prob,axis=0)[1]
@@ -98,7 +99,7 @@ def eval_model(cfg: DictConfig):
         #n = pred.shape[0]
 
         # return mean, max, shape
-        return prob
+        return prob_list
 
 
     # In[7]:
@@ -248,7 +249,7 @@ def eval_model(cfg: DictConfig):
     real_labels = patient_labels(test_list)
 
     # turn predicted probability list into 1d numpy array
-    pred_prob = np.asarray(patient_prob)
+    #pred_prob = np.asarray(patient_prob)
 
     # generate label array from probability list and threshold
     # if probability over a certain threshold, generate a readmit label of 1
@@ -262,8 +263,12 @@ def eval_model(cfg: DictConfig):
 
     j_dir = slurm_utils.get_j_dir(cfg)
     o_dir = os.path.join(j_dir, os.environ['SLURM_JOB_ID'])
-    with open(os.path.join(o_dir, 'pred_prob.npz'), 'wb') as f:
-        np.save(f, pred_prob)
+
+    with open(os.path.join(o_dir, 'pred_prob.json'), 'wb') as outfile:
+        json.dump(patient_prob, outfile)
+
+    #with open(os.path.join(o_dir, 'pred_prob.npz'), 'wb') as f:
+    #    np.save(f, pred_prob)
     #with open(os.path.join(o_dir, 'pred_labels.npz'), 'wb') as f:
     #    np.save(f, pred_labels)
     with open(os.path.join(o_dir, 'real_labels.npz'), 'wb') as f:
