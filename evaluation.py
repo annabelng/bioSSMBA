@@ -90,12 +90,12 @@ def eval_model(cfg: DictConfig):
         prob = softmax(pred, axis = 1)[:,1]
 
         # find the mean probability of readmission
-        meanprob = np.mean(prob,axis=0)[1]
+        #meanprob = np.mean(prob,axis=0)[1]
 
         # find the max probability of readmission
-        maxprob = np.amax(prob,axis=0)[1]
+        #maxprob = np.amax(prob,axis=0)[1]
 
-        n = pred.shape[0]
+        #n = pred.shape[0]
 
         # return mean, max, shape
         return prob
