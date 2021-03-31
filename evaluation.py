@@ -14,6 +14,7 @@ import os
 import numpy as np
 import torch
 from scipy.special import softmax
+import json
 from omegaconf import DictConfig
 import hydra
 from hydra import slurm_utils
@@ -264,7 +265,7 @@ def eval_model(cfg: DictConfig):
     j_dir = slurm_utils.get_j_dir(cfg)
     o_dir = os.path.join(j_dir, os.environ['SLURM_JOB_ID'])
 
-    with open(os.path.join(o_dir, 'pred_prob.json'), 'wb') as outfile:
+    with open(os.path.join(o_dir, 'pred_prob.json'), 'w') as outfile:
         json.dump(patient_prob, outfile)
 
     #with open(os.path.join(o_dir, 'pred_prob.npz'), 'wb') as f:
