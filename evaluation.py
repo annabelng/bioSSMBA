@@ -87,7 +87,7 @@ def eval_model(cfg: DictConfig):
         pred = train_pred.predictions
 
         # softmax each row so each row sums to 1
-        prob = softmax(pred, axis = 1)
+        prob = softmax(pred, axis = 1)[:,1]
 
         # find the mean probability of readmission
         meanprob = np.mean(prob,axis=0)[1]
@@ -253,7 +253,7 @@ def eval_model(cfg: DictConfig):
     # generate label array from probability list and threshold
     # if probability over a certain threshold, generate a readmit label of 1
     # otherwise, readmit = 0
-    pred_labels = convert_probability(pred_prob,0.5)
+    #pred_labels = convert_probability(pred_prob,0.5)
 
     #print(real_labels)
     #print(pred_prob)
@@ -264,13 +264,13 @@ def eval_model(cfg: DictConfig):
     o_dir = os.path.join(j_dir, os.environ['SLURM_JOB_ID'])
     with open(os.path.join(o_dir, 'pred_prob.npz'), 'wb') as f:
         np.save(f, pred_prob)
-    with open(os.path.join(o_dir, 'pred_labels.npz'), 'wb') as f:
-        np.save(f, pred_labels)
+    #with open(os.path.join(o_dir, 'pred_labels.npz'), 'wb') as f:
+    #    np.save(f, pred_labels)
     with open(os.path.join(o_dir, 'real_labels.npz'), 'wb') as f:
         np.save(f, real_labels)
 
     # computing the metrics
-    print(compute_metrics(pred_labels, real_labels,pred_prob))
+    #print(compute_metrics(pred_labels, real_labels,pred_prob))
 
 if __name__ == "__main__":
     eval_model()
