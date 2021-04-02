@@ -45,19 +45,19 @@ def eval_model(cfg: DictConfig):
     elif cfg.noise == 0.1 and cfg.label == 'soft':
         model = DistilBertForSequenceClassification.from_pretrained("/h/nng/slurm/2021-03-04/train_ssmba_0.1_soft/2077547/checkpoint-31000")
     elif cfg.noise == 0.1 and cfg.label == 'pres':
-        model = DistilBertForSequenceClassification.from_pretrained("/h/nng/slurm/2021-03-04/train_ssmba_0.1_pres/2077548/checkpoint-31000")
+        model = DistilBertForSequenceClassification.from_pretrained("/checkpoint/nng/keep/train_ssmba_0.1_pres/checkpoint-31000")
     elif cfg.noise == 0.2 and cfg.label == 'soft':
         model = DistilBertForSequenceClassification.from_pretrained("/h/nng/slurm/2021-03-04/train_ssmba_0.2_soft/2077549/checkpoint-31000")
     elif cfg.noise == 0.2 and cfg.label == 'pres':
-        model = DistilBertForSequenceClassification.from_pretrained("/h/nng/slurm/2021-03-04/train_ssmba_0.2_pres/2077550/checkpoint-31000")
+        model = DistilBertForSequenceClassification.from_pretrained("/checkpoint/nng/keep/train_ssmba_0.2_pres/checkpoint-31000")
     elif cfg.noise == 0.3 and cfg.label == 'soft':
         model = DistilBertForSequenceClassification.from_pretrained("/h/nng/slurm/2021-03-04/train_ssmba_0.3_soft/2077551/checkpoint-31000")
     elif cfg.noise == 0.3 and cfg.label == 'pres':
-        model = DistilBertForSequenceClassification.from_pretrained("/h/nng/slurm/2021-03-04/train_ssmba_0.3_pres/2077552/checkpoint-31000")
+        model = DistilBertForSequenceClassification.from_pretrained("/checkpoint/nng/keep/train_ssmba_0.3_pres/checkpoint-31000")
     elif cfg.noise == 0.4 and cfg.label == 'soft':
         model = DistilBertForSequenceClassification.from_pretrained("/h/nng/slurm/2021-03-04/train_ssmba_0.4_soft/2077553/checkpoint-31000")
     elif cfg.noise == 0.4 and cfg.label == 'pres':
-        model = DistilBertForSequenceClassification.from_pretrained("/h/nng/slurm/2021-03-04/train_ssmba_0.4_pres/2077554/checkpoint-31000")
+        model = DistilBertForSequenceClassification.from_pretrained("/checkpoint/nng/keep/train_ssmba_0.4_pres/checkpoint-31000")
 
 
     # In[5]:
