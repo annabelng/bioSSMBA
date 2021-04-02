@@ -92,10 +92,10 @@ def eval_model(cfg: DictConfig):
         prob_list = prob.tolist()
 
         # find the mean probability of readmission
-        meanprob = np.mean(prob,axis=0)[1]
+        meanprob = np.mean(prob,axis=0)
 
         # find the max probability of readmission
-        maxprob = np.amax(prob,axis=0)[1]
+        maxprob = np.amax(prob,axis=0)
 
         # number of subsequences
         n = pred.shape[0]
