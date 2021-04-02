@@ -92,15 +92,20 @@ def eval_model(cfg: DictConfig):
         prob_list = prob.tolist()
 
         # find the mean probability of readmission
-        #meanprob = np.mean(prob,axis=0)[1]
+        meanprob = np.mean(prob,axis=0)[1]
 
         # find the max probability of readmission
-        #maxprob = np.amax(prob,axis=0)[1]
+        maxprob = np.amax(prob,axis=0)[1]
 
-        #n = pred.shape[0]
+        # number of subsequences
+        n = pred.shape[0]
+        
+        # putting mean, max, and n into list
+        mean_max_n = []
+        mean_max_n.extend((meanprob, maxprob, n))
 
         # return mean, max, shape
-        return prob_list
+        return prob_list, mean_max_n
 
 
     # In[7]:
@@ -186,6 +191,21 @@ def eval_model(cfg: DictConfig):
             'recall': recall,
             'auroc': roc,
         }
+    
+    # calculating readmit probability on per patient basis
+    # trying different c values
+    '''def optimize_c(raw_prob):
+        for i in raw_prob:
+            
+        # c accounts for patients with many notes
+        c=2
+        # weight as n/c
+        scaling = n/c
+        denominator = 1+scaling
+        numerator = maxprob + (meanprob * scaling)
+
+        probability = numerator/denominator
+        return probability'''
 
 
     # In[10]:
@@ -219,6 +239,7 @@ def eval_model(cfg: DictConfig):
     def evaluate(split):
         # empty list of scalable readmission prediction probabilities
         patient_prob = []
+        patient_mean_max = []
 
         # load valid list for testing
         for i in range(len(split)):
@@ -226,16 +247,17 @@ def eval_model(cfg: DictConfig):
             test_dataset = prepare_data(split[i])
 
             # find the max and mean probability of readmission
-            raw_prob = probability(test_dataset)
+            raw_prob, mean_max_n = probability(test_dataset)
 
             # calculate readmission probability per patient
             #readmit = readmit_probability(mean,maximum,n)
 
             # add probabilities into list of all patient probabilities
             patient_prob.append(raw_prob)
+            patient_mean_max.append(mean_max_n)
             #print(i)
 
-        return patient_prob
+        return patient_prob, patient_mean_max
 
 
     # In[20]:
@@ -243,7 +265,8 @@ def eval_model(cfg: DictConfig):
 
     # generating patient probability from model
     # pass in either valid_list or test_list
-    patient_prob = evaluate(test_list)
+    patient_prob, patient_mean_max = evaluate(test_list)
+    mean_max_vals = np.asarray(patient_mean_max)
 
     # generating actual labels of patients for valid list
     # pass in either valid_list or test_list
@@ -268,8 +291,9 @@ def eval_model(cfg: DictConfig):
     with open(os.path.join(o_dir, 'pred_prob.json'), 'w') as outfile:
         json.dump(patient_prob, outfile)
 
-    #with open(os.path.join(o_dir, 'pred_prob.npz'), 'wb') as f:
-    #    np.save(f, pred_prob)
+    with open(os.path.join(o_dir, 'mean_max_n.npz'), 'wb') as f:
+        np.save(f, mean_max_vals)
+        
     #with open(os.path.join(o_dir, 'pred_labels.npz'), 'wb') as f:
     #    np.save(f, pred_labels)
     with open(os.path.join(o_dir, 'real_labels.npz'), 'wb') as f:
